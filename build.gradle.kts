@@ -13,17 +13,11 @@ repositories {
 }
 
 kotlin {
-    jvm()
-
     macosX64()
     mingwX64(); mingwX86()
-    linuxX64(); linuxArm64(); linuxArm32Hfp(); linuxMips32(); linuxMipsel32()
+    linuxX64();
     androidNativeArm64(); androidNativeArm32(); androidNativeX64(); androidNativeX86()
     iosArm64(); iosArm32(); iosX64()
-    watchosArm64(); watchosArm32()
-    tvosArm64(); tvosX64()
-    js { browser(); nodejs() }
-    wasm32()
 
     sourceSets {
         val commonMain by getting {
@@ -32,16 +26,48 @@ kotlin {
             }
         }
 
+        val mingwX64Main by getting; val mingwX86Main by getting
+        val macosX64Main by getting
+        val linuxX64Main by getting
+        val androidNativeArm64Main by getting; val androidNativeArm32Main by getting;
+        val androidNativeX64Main by getting; val androidNativeX86Main by getting;
+        val iosArm64Main by getting; val iosArm32Main by getting; val iosX64Main by getting
+
+        val windowsMain by creating {
+            mingwX64Main.dependsOn(this)
+            mingwX86Main.dependsOn(this)
+        }
+
+        val macosMain by creating {
+            macosX64Main.dependsOn(this)
+        }
+
+        val linuxMain by creating {
+            linuxX64Main.dependsOn(this)
+        }
+
+        val desktopMain by creating {
+            dependsOn(commonMain)
+            windowsMain.dependsOn(this)
+            macosMain.dependsOn(this)
+            linuxMain.dependsOn(this)
+        }
+
+        val androidMain by creating {
+            dependsOn(commonMain)
+            androidNativeArm64Main.dependsOn(this); androidNativeArm32Main.dependsOn(this)
+            androidNativeX64Main.dependsOn(this); androidNativeX86Main.dependsOn(this)
+        }
+
+        val iosMain by creating {
+            dependsOn(commonMain)
+            iosArm64Main.dependsOn(this); iosArm32Main.dependsOn(this); iosX64Main.dependsOn(this)
+        }
+
         val commonTest by getting {
             dependencies {
                 implementation(kotlin("test-common"))
                 implementation(kotlin("test-annotations-common"))
-            }
-        }
-
-        val jsTest by getting {
-            dependencies {
-                implementation(kotlin("test-js"))
             }
         }
     }
