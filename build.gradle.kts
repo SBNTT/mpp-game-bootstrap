@@ -8,7 +8,7 @@ plugins {
 }
 
 group = "me.sbntt.mpp.bootstrap"
-version = "0.1.0"
+version = "0.2.0"
 
 val glfwVersion = "3.3.2"
 val vulkanVersion = "1.2.165"
