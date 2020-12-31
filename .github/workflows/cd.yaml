@@ -89,6 +89,9 @@ jobs:
         uses: actions/setup-java@v1
         with:
           java-version: '8'
+      
+      - name: Install build dependencies
+        run: sudo apt install -y xorg-dev gcc-multilib
 
       - name: Build
         run: ./gradlew buildFromLinux
