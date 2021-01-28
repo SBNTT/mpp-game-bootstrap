@@ -1,27 +1,30 @@
 @file:Suppress("UNUSED_VARIABLE")
 
 import org.jetbrains.kotlin.gradle.plugin.mpp.KotlinNativeTarget
+import org.jetbrains.kotlin.konan.target.*
+
+repositories {
+    mavenCentral()
+}
 
 plugins {
     kotlin("multiplatform")
     id("maven-publish")
 }
 
-group = "me.sbntt.mpp.bootstrap"
+group   = "me.sbntt.mpp.bootstrap"
 version = "0.2.1"
 
-val glfwVersion = "3.3.2"
+val glfwVersion   = "3.3.2"
 val vulkanVersion = "1.2.165"
 
 val nativeLibsDir = buildDir.resolve("nativeLibs")
-val downloadsDir = buildDir.resolve("tmp")
+val downloadsDir  = buildDir.resolve("tmp")
 
-val glfwDir = nativeLibsDir.resolve("glfw-$glfwVersion-${System.getProperty("os.name").replace(" ", "-")}")
-val vulkanDir = nativeLibsDir.resolve("vulkan-$vulkanVersion-${System.getProperty("os.name").replace(" ", "-")}")
-
-repositories {
-    mavenCentral()
-}
+val vulkanDir    = nativeLibsDir.resolve("vulkan-$vulkanVersion")
+val glfwMacosDir = nativeLibsDir.resolve("glfw-$glfwVersion-macos")
+val glfwMingwDir = nativeLibsDir.resolve("glfw-$glfwVersion-mingw")
+val glfwLinuxDir = nativeLibsDir.resolve("glfw-$glfwVersion-linux")
 
 publishing {
     repositories {
@@ -38,74 +41,42 @@ publishing {
 
 tasks {
     val setupVulkan by registering {
-        if (vulkanDir.exists()) return@registering
-
-        if (!nativeLibsDir.exists()) nativeLibsDir.mkdirs()
-        if (!downloadsDir.exists()) downloadsDir.mkdirs()
-
-        println("Downloading Vulkan v.$vulkanVersion headers ...")
-        val vulkanArchive = downloadsDir.resolve("vulkan-$vulkanVersion.zip")
-        download(
-            "https://github.com/KhronosGroup/Vulkan-Headers/archive/v$vulkanVersion.zip",
-            vulkanArchive
+        downloadNativeLibFromGithubAsset(
+            url = "https://github.com/KhronosGroup/Vulkan-Headers/archive",
+            asset = "v$vulkanVersion.zip",
+            dest = vulkanDir
         )
-
-        println("Expanding Vulkan v.$vulkanVersion headers ...")
-        copy {
-            from(zipTree(vulkanArchive)) {
-                include("Vulkan-*/include/**")
-                includeEmptyDirs = false
-                eachFile {
-                    relativePath = RelativePath(true, *relativePath.segments.drop(1).toTypedArray())
-                }
-            }
-            into(vulkanDir)
-        }
-        delete(vulkanArchive)
     }
 
-    val setupGlfw by registering {
-        if (glfwDir.exists()) return@registering
-
-        if (!nativeLibsDir.exists()) nativeLibsDir.mkdirs()
-        if (!downloadsDir.exists()) downloadsDir.mkdirs()
-
-        val hostOs: String = System.getProperty("os.name")
-        val releaseAsset = when {
-            hostOs == "Mac OS X" -> "glfw-$glfwVersion.bin.MACOS.zip"
-            hostOs.startsWith("Windows") -> "glfw-$glfwVersion.bin.WIN64.zip"
-            hostOs == "Linux" ->"glfw-$glfwVersion.zip"
-            else -> throw GradleException("Unsupported host for GLFW")
-        }
-
-        println("Downloading $releaseAsset ...")
-        val glfwArchive = downloadsDir.resolve("glfw-$glfwVersion.zip")
-        download(
-            "https://github.com/glfw/glfw/releases/download/$glfwVersion/$releaseAsset",
-            glfwArchive
+    val setupMacosGlfw by registering {
+        downloadNativeLibFromGithubAsset(
+            url = "https://github.com/glfw/glfw/releases/download/$glfwVersion",
+            asset = "glfw-$glfwVersion.bin.MACOS.zip",
+            dest = glfwMacosDir
         )
+    }
 
-        println("Expanding GLFW v.$glfwVersion ...")
-        copy {
-            from(zipTree(glfwArchive)) {
-                includeEmptyDirs = false
-                eachFile {
-                    relativePath = RelativePath(true, *relativePath.segments.drop(1).toTypedArray())
-                }
-            }
-            into(glfwDir)
-        }
-        delete(glfwArchive)
+    val setupMingwGlfw by registering {
+        downloadNativeLibFromGithubAsset(
+            url = "https://github.com/glfw/glfw/releases/download/$glfwVersion",
+            asset = "glfw-$glfwVersion.bin.WIN64.zip",
+            dest = glfwMingwDir
+        )
+    }
 
-        if (hostOs == "Linux") {
+    val setupLinuxGlfw by registering {
+        downloadNativeLibFromGithubAsset(
+            url = "https://github.com/glfw/glfw/releases/download/$glfwVersion",
+            asset = "glfw-$glfwVersion.zip",
+            dest = glfwLinuxDir
+        ) {
             println("Building GLFW...")
-            
             listOf(
                 "cmake .",
                 "make",
                 "mkdir lib-linux",
                 "mv src/libglfw3.a lib-linux"
-            ).forEach { println(it.runCommand(glfwDir)) }
+            ).forEach { println(it.runCommand(glfwLinuxDir)) }
         }
     }
 
@@ -168,8 +139,6 @@ kotlin {
     macosX64()
     mingwX64()
     linuxX64()
-    androidNativeArm64(); androidNativeX64(); androidNativeX86()
-    iosArm64(); iosArm32(); iosX64()
 
     targets.withType<KotlinNativeTarget>().forEach {
         it.compilations.named("main") {
@@ -184,25 +153,43 @@ kotlin {
     }
 
     targets.withType<KotlinNativeTarget>()
-        .filter { it.targetName.startsWith("mingw") || it.targetName.startsWith("macos") || it.targetName.startsWith("linux")  }
+        .filter { it.konanTarget in listOf(KonanTarget.MACOS_X64, KonanTarget.LINUX_X64, KonanTarget.MINGW_X64) }
         .forEach {
             it.compilations.named("main") {
+                val (setupGlfwTask, glfwIncludeDir, staticLibraryPath) = when(konanTarget) {
+                    KonanTarget.MACOS_X64 -> listOf(
+                        tasks.named("setupMacosGlfw"),
+                        glfwMacosDir.resolve("include"),
+                        "$glfwMacosDir/lib-macos/libglfw3.a"
+                    )
+                    KonanTarget.MINGW_X64 -> listOf(
+                        tasks.named("setupMingwGlfw"),
+                        glfwMingwDir.resolve("include"),
+                        "$glfwMingwDir/lib-mingw-w64/libglfw3.a"
+                    )
+                    else -> listOf(
+                        tasks.named("setupLinuxGlfw"),
+                        glfwLinuxDir.resolve("include"),
+                        "$glfwLinuxDir/lib-linux/libglfw3.a"
+                    )
+                }
+
+                setupGlfwTask as TaskProvider<Task>
+                glfwIncludeDir as File
+                staticLibraryPath as String
+
                 cinterops.create("glfw") {
                     tasks.named(interopProcessingTaskName) {
                         dependsOn(tasks.named("setupVulkan"))
-                        dependsOn(tasks.named("setupGlfw"))
+                        dependsOn(setupGlfwTask)
                     }
 
-                    includeDirs(glfwDir.resolve("include"))
-                    includeDirs(vulkanDir.resolve("include"))
+                    includeDirs(glfwIncludeDir, vulkanDir.resolve("include"))
                 }
-                kotlinOptions{
+
+                kotlinOptions {
                     freeCompilerArgs = listOf(
-                        "-include-binary", when {
-                            it.targetName.startsWith("macos") -> "$glfwDir/lib-macos/libglfw3.a"
-                            it.targetName.startsWith("mingw") -> "$glfwDir/lib-mingw-w64/libglfw3.a"
-                            else                    /*linux*/ -> "$glfwDir/lib-linux/libglfw3.a"
-                        }
+                        "-include-binary", staticLibraryPath
                     )
                 }
             }
@@ -219,35 +206,16 @@ kotlin {
             dependsOn(commonMain)
         }
 
-        val desktopMain by creating {
-            dependsOn(nativeMain)
-        }
-
         val mingwX64Main by getting {
-            dependsOn(desktopMain)
+            dependsOn(nativeMain)
         }
 
         val macosX64Main by getting {
-            dependsOn(desktopMain)
+            dependsOn(nativeMain)
         }
 
         val linuxX64Main by getting {
-            dependsOn(desktopMain)
-        }
-
-        val androidNativeArm64Main by getting
-        val androidNativeX64Main by getting; val androidNativeX86Main by getting;
-        val iosArm64Main by getting; val iosArm32Main by getting; val iosX64Main by getting
-
-        val androidMain by creating {
             dependsOn(nativeMain)
-            androidNativeArm64Main.dependsOn(this)
-            androidNativeX64Main.dependsOn(this); androidNativeX86Main.dependsOn(this)
-        }
-
-        val iosMain by creating {
-            dependsOn(nativeMain)
-            iosArm64Main.dependsOn(this); iosArm32Main.dependsOn(this); iosX64Main.dependsOn(this)
         }
 
         val commonTest by getting {
@@ -257,6 +225,31 @@ kotlin {
             }
         }
     }
+}
+
+fun downloadNativeLibFromGithubAsset(url: String, asset: String, dest: File, runAfter: (() -> Unit)? = null) {
+    if (dest.exists()) return
+
+    nativeLibsDir.mkdirs()
+    if (!downloadsDir.exists()) downloadsDir.mkdirs()
+
+    println("Downloading $asset ...")
+    val archive = downloadsDir.resolve(asset)
+    download("$url/$asset", archive)
+
+    println("Expanding $asset ...")
+    copy {
+        from(zipTree(archive)) {
+            includeEmptyDirs = false
+            eachFile {
+                relativePath = RelativePath(true, *relativePath.segments.drop(1).toTypedArray())
+            }
+        }
+        into(dest)
+    }
+
+    delete(archive)
+    runAfter?.invoke()
 }
 
 fun download(url : String, dest: File) {
