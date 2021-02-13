@@ -1,4 +1,0 @@
-package = vulkan
-headers = vulkan/vulkan.h
-
-compilerOpts = -DVK_NO_PROTOTYPES
