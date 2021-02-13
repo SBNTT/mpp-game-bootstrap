@@ -1,6 +1,6 @@
 package me.sbntt.mpp.bootstrap
 
-import glfw.*
+import me.sbntt.mppgame.glfw.*
 import kotlinx.cinterop.CPointer
 
 actual class MppGameWindow actual constructor(
