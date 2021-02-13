@@ -2,11 +2,7 @@ package me.sbntt.mpp.bootstrap
 
 class MppGameApp(private val window: MppGameWindow) {
 
-    init {
-        MppSystem.exitProcess(run())
-    }
-
-    private fun run(): Int {
+    internal fun run(): Int {
         try {
             window.init()
             mainLoop()
