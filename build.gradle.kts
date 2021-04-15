@@ -1,89 +1,32 @@
 @file:Suppress("UNUSED_VARIABLE")
 
-repositories {
-    mavenCentral()
-    maven("https://dl.bintray.com/sbntt/mpp-game")
-}
+import java.util.Base64
 
 plugins {
     kotlin("multiplatform")
     id("maven-publish")
 }
 
-group   = "me.sbntt.mpp.bootstrap"
-version = "0.2.1"
-
-val glfwVersion   = "3.3.2"
-val vulkanVersion = "1.2.169"
-
-publishing {
-    repositories {
-        maven {
-            name = "GitHubPackages"
-            url = uri("https://maven.pkg.github.com/SBNTT/mpp-game-bootstrap")
-            credentials {
-                username = project.findProperty("gpr.user") as String? ?: System.getenv("GITHUB_ACTOR")
-                password = project.findProperty("gpr.key") as String? ?: System.getenv("GITHUB_TOKEN")
-            }
-        }
-    }
+repositories {
+    mavenCentral()
+    maven("https://dl.bintray.com/sbntt/mpp-game")
+    githubPackage("SBNTT/mpp-game-common")
 }
 
-tasks {
-    val buildFromMacos by registering {
-        tasksFiltering("compile", "", false, "ios", "macos").forEach {
-            dependsOn(this@tasks.getByName(it))
-        }
-    }
+val mavenRegistryName: String by project
+val mavenRegistryUrl: String by project
+val mavenRegistryUsernameEnvVariable: String by project
+val mavenRegistryPasswordEnvVariable: String by project
 
-    val testFromMacos by registering {
-        tasksFiltering("", "", true, "ios", "macos").forEach {
-            dependsOn(this@tasks.getByName(it))
-        }
-    }
+val group: String by project
+val version: String by project
 
-    val publishFromMacos by registering {
-        tasksFiltering("publish", "GitHubPackagesRepository", false, "ios", "macos").forEach {
-            dependsOn(this@tasks.getByName(it))
-        }
-    }
+val glfwVersion: String by project
+val vulkanVersion: String by project
+val commonVersion: String by project
 
-    val buildFromLinux by registering {
-        (tasksFiltering("compile", "", false, "android", "linux")).forEach {
-            dependsOn(this@tasks.getByName(it))
-        }
-    }
-
-    val testFromLinux by registering {
-        tasksFiltering("", "", true, "android", "linux").forEach {
-            dependsOn(this@tasks.getByName(it))
-        }
-    }
-
-    val publishFromLinux by registering {
-        tasksFiltering("publish", "GitHubPackagesRepository", false, "android", "linux").forEach {
-            dependsOn(this@tasks.getByName(it))
-        }
-    }
-
-    val buildFromWindows by registering {
-        tasksFiltering("compile", "", false, "mingw").forEach {
-            dependsOn(this@tasks.getByName(it))
-        }
-    }
-
-    val testFromWindows by registering {
-        tasksFiltering("", "", true, "mingw").forEach {
-            dependsOn(this@tasks.getByName(it))
-        }
-    }
-
-    val publishFromWindows by registering {
-        tasksFiltering("publish", "GitHubPackagesRepository", false, "mingw").forEach {
-            dependsOn(this@tasks.getByName(it))
-        }
-    }
-}
+project.group = group
+project.version = version
 
 kotlin {
     macosX64()
@@ -91,48 +34,86 @@ kotlin {
     linuxX64()
 
     sourceSets {
-        val commonMain by getting {
+        val apiMain by creating {
             dependencies {
-                implementation(kotlin("stdlib-common"))
+                implementation(kotlin("stdlib"))
+                api("me.sbntt.mppgame:vulkan:$vulkanVersion")
+                implementation("me.sbntt.mppgame:common:$commonVersion")
             }
         }
 
         val nativeMain by creating {
-            dependsOn(commonMain)
+            dependsOn(apiMain)
+        }
+
+        val desktopMain by creating {
+            dependsOn(nativeMain)
             dependencies {
-                implementation("me.sbntt.mppgame:vulkan:$vulkanVersion")
+                implementation("me.sbntt.mppgame:glfw:$glfwVersion-vulkan.$vulkanVersion")
             }
         }
 
         val mingwX64Main by getting {
-            dependsOn(nativeMain)
-            dependencies {
-                implementation("me.sbntt.mppgame:glfw:$glfwVersion")
-            }
+            dependsOn(desktopMain)
         }
 
         val macosX64Main by getting {
-            dependsOn(nativeMain)
-            dependencies {
-                implementation("me.sbntt.mppgame:glfw:$glfwVersion")
-            }
+            dependsOn(desktopMain)
         }
 
         val linuxX64Main by getting {
-            dependsOn(nativeMain)
-            dependencies {
-                implementation("me.sbntt.mppgame:glfw:$glfwVersion")
-            }
+            dependsOn(desktopMain)
         }
+    }
+}
 
-        val commonTest by getting {
-            dependencies {
-                implementation(kotlin("test-common"))
-                implementation(kotlin("test-annotations-common"))
+publishing {
+    repositories {
+        maven {
+            name = mavenRegistryName
+            url = uri(mavenRegistryUrl)
+            credentials {
+                username = System.getenv(mavenRegistryUsernameEnvVariable)
+                password = System.getenv(mavenRegistryPasswordEnvVariable)
             }
         }
     }
 }
+
+tasks {
+    val macosHostTargets = arrayOf("ios", "tvos", "watchos", "macos")
+    val linuxHostTargets = arrayOf("kotlinmultiplatform", "android", "linux", "wasm", "jvm", "js")
+    val windowsHostTargets = arrayOf("mingw")
+
+    val hostSpecificBuild by registering {
+        dependsOn(when {
+            isMacOsHost() -> tasksFiltering("compile", "", false, *macosHostTargets)
+            isLinuxHost() -> tasksFiltering("compile", "", false, *linuxHostTargets)
+            isWindowsHost() -> tasksFiltering("compile", "", false, *windowsHostTargets)
+            else -> throw RuntimeException("Unsupported host")
+        })
+    }
+
+    val hostSpecificPublish by registering {
+        dependsOn(when {
+            isMacOsHost() -> tasksFiltering("publish", "${mavenRegistryName}Repository", false, *macosHostTargets)
+            isLinuxHost() -> tasksFiltering("publish", "${mavenRegistryName}Repository", false, *linuxHostTargets)
+            isWindowsHost() -> tasksFiltering("publish", "${mavenRegistryName}Repository", false, *windowsHostTargets)
+            else -> throw RuntimeException("Unsupported host")
+        })
+    }
+}
+
+fun RepositoryHandler.githubPackage(repository: String) = maven("https://maven.pkg.github.com/$repository") {
+    credentials {
+        username = "SBNTT-machine-user"
+        password = String(Base64.getDecoder().decode("Z2hwX3VoTENMZ2xBa3dmdmdPRjRSRDBodDl6RFNqUGdCOTBjZnBONw=="))
+    }
+}
+
+fun isWindowsHost() = System.getProperty("os.name").startsWith("windows", ignoreCase = true)
+fun isMacOsHost() = System.getProperty("os.name").startsWith("mac os", ignoreCase = true)
+fun isLinuxHost() = System.getProperty("os.name").startsWith("linux", ignoreCase = true)
 
 fun tasksFiltering(prefix: String, suffix: String, test: Boolean, vararg platforms: String) = tasks.names
         .asSequence()
