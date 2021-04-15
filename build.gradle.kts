@@ -9,7 +9,8 @@ plugins {
 
 repositories {
     mavenCentral()
-    maven("https://dl.bintray.com/sbntt/mpp-game")
+    githubPackage("SBNTT/mpp-game-glfw")
+    githubPackage("SBNTT/mpp-game-vulkan")
     githubPackage("SBNTT/mpp-game-common")
 }
 
